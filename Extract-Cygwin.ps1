@@ -23,7 +23,7 @@
 .PARAMETER Download
     Downloads Cygwin installer, setup.ini, and packages whose state are 'New' or 'Updated'.
 
-.PARAMETER LocalPackageDirectory
+.PARAMETER Local
     Reads the version of Cygwin packages which have already been installed to the specified path
     on the local. If this parameter is not specified, the state of all packages is always 'New'.
 
@@ -75,7 +75,7 @@ param(
     [string[]]$Category=@(),
     [string]$Country="",
     [switch]$Download,
-    [string]$LocalPackageDirectory="",
+    [string]$Local="",
     [string]$Mirror="",
     [string[]]$Package=@(),
     [switch]$Quiet,
@@ -308,6 +308,7 @@ $FIELD_PATH_REGEX = [Regex]('(.*/)?([-+.0-9a-zA-Z_]+)$');
 $STATE_UNDEFINED = 'Undefined';
 $STATE_NEW = 'New';
 $STATE_UPDATED = 'Updated';
+$STATE_UNCHANGED = 'Unchanged';
 $STATE_OLDER = 'Older';
 $STATE_NOT_FOUND = 'Not Found';
 $STATE_ERROR = 'Error';
@@ -596,7 +597,7 @@ switch ($SetupArch) {
         $PackageRoot = $SetupRoot + $SETUP_X64_PACKAGE_ROOT;
     }
 }
-$PackageLocalDirectory = $LocalPackageDirectory -replace '\\', '/' -replace '/$', "";
+$PackageLocalDirectory = $Local -replace '\\', '/' -replace '/$', "";
 $PackageMap = @{};
 $PackageInstalledMap = $null;
 $Verbose = -not $Quiet.IsPresent;
@@ -725,7 +726,6 @@ $response = $null;
 $reader = $null;
 try {
 
-#[Console]::Error.Write('Package Directory: ' + $PackageLocalDirectory + "`n");
     if ($PackageLocalDirectory -ne "") {
 #            Import-Module $PROG_CHECK_PACKAGE 2> $null;
         $PackageInstalledMap = New-Object Hashtable 256;
@@ -744,7 +744,6 @@ try {
                         $name = $field[0];
                         $verstr = $field[1].Substring($name.Length + 1) `
                                    -replace $CYGWIN_INSTALLED_PACKAGE_SUFFIX_EXPR, "";
-#[Console]::Error.Write($name + ': ' + $verstr + "`n");
                         $PackageInstalledMap.Add($name, (GetCygwinVersion $verstr));
                     } while ($reader.Peek() -ge 0);
                 }
@@ -981,7 +980,7 @@ try {
                 -and ($PackageInstalledMap.Contains($packname))) {
                 $verobj = GetCygwinVersion $packobj.($FIELD_VERSION);
                 $result = CompareCygwinVersion $verobj $PackageInstalledMap.Item($packname);
-                $state = "";
+                $state = $STATE_UNCHANGED;
                 if ($result -gt 0) {
                     $state = $STATE_UPDATED;
                 } elseif ($result -lt 0) {
