@@ -73,26 +73,27 @@
 .EXAMPLE
     C:\PS> .\Extract-Cygwin.ps1 x86_64 -Package cygwin -Download
 
-    Name           : Cygwin setup.ini
-    Timestamp      : 1746977763
+    Name           : setup.ini
+    Release        : cygwin
+    Arch           : x86_64
+    Timestamp      : 1747224847
     MinimumVersion : 2.903
     Version        : 2.933
-    Install        : @{Path=x86_64/setup.ini; Size=18642455; Date=2025/05/12 0:36:08; State=New}
+    Install        : @{Path=x86_64/setup.ini; Size=18642447; Date=2025/05/14 21:14:11; State=New}
     Mirror         : http://ftp.jaist.ac.jp/pub/cygwin/
 
-    Name    : Cygwin installer
-    Version :
+    Name    : Cygwin Installer
+    Version : 2.933
     Install : @{Path=setup-x86_64.exe; Size=1573296; Date=2025/04/05 2:08:04; State=New}
-    Mirror  : https://cygwin.com/setup-x86_65.exe
+    URL     : https://cygwin.com/setup/setup-2.933.x86_64.exe
 
-    Name         : cygwin
-    Description  : The UNIX emulation engine
-    Category     : {Base}
-    Version      : 3.6.1-1
-    Install      : @{Path=x86_64/release/cygwin/cygwin-3.6.1-1-x86_64.tar.xz; Size=1584656; Date=
-                   2025/04/09 20:40:22; State=New}
-    Depends      : {_windows(>=6.3), bash, libgcc1, libintl8...}
-    BuildDepends : {autoconf, automake, cocom, cygport...}
+    Name        : cygwin
+    Description : The UNIX emulation engine
+    Category    : {Base}
+    Version     : 3.6.1-1
+    Install     : @{Path=x86_64/release/cygwin/cygwin-3.6.1-1-x86_64.tar.xz; Size=1584656; Date=
+                  2025/04/09 20:40:22; State=New}
+    Depends     : {_windows(>=6.3), bash, libgcc1, libintl8...}
 #>
 
 # Parametes of this script
@@ -346,18 +347,20 @@ $FIELD_SIZE = 'Size';;                        # Added to Install and Source fiel
 $FIELD_HASH = 'Hash';                         # Added to Install and Source field by -Supplement
 $FIELD_DATE = 'Date';                         # Added to Install and Source field for the download
 $FIELD_STATE = 'State';                       # Added to Install and Source field
-$FIELD_REQUIRES = 'Requires';                 # (Optional)
+$FIELD_REQUIRES = 'Requires';                 # Replaceed with Depends field
 $FIELD_DEPENDS = 'Depends';                   # (Optional)
-$FIELD_CONFLICTS = 'Conflicts';               # Specified by -OptionalInfo (Optional)
+$FIELD_CONFLICTS = 'Conflicts';               # Specified by -Supplement (Optional)
 $FIELD_OBSOLETES = 'Obsoletes';               # Specified by -Supplement (Optional)
 $FIELD_PROVIDES = 'Provides';                 # (Optional)
-$FIELD_BUILD_DEPENDS = 'BuildDepends';        # (Optional)
+$FIELD_BUILD_DEPENDS = 'BuildDepends';        # Added for the package specified by -Source
+$FIELD_RELEASE = 'Release';                   # Added to the object of setup.ini
+$FIELD_ARCH = 'Arch';                         # Added to the object of setup.ini
 $FIELD_MINIMUM_VERSION = 'MinimumVersion';    # Added to the object of setup.ini
 $FIELD_TIMESTAMP = 'Timestamp';               # Added to the object of setup.ini
 $FIELD_MIRROR = 'Mirror';                     # Added to the object of setup.ini
 $FIELD_URL = 'URL';                           # Added to the object of the installer
 
-$FIELD_PATH_EXPR = '(.*/)?([-+.0-9a-zA-Z_]+)$';
+$FIELD_PATH_EXPR = '(.*/)?([-+.0-9A-Za-z_]+)$';
 $FIELD_INSTALL_OR_SOURCE_EXPR = `
     '(([norarchx864_]+/)?release/(_obsolete/)?([^ /]+)(/[^ /]+)+) ([0-9]+) ([+/=0-9A-Za-z]+)$';
 $DEPENDED_PACKAGE_SUFFIX_EXPR = '\((=|<=?|>=?)[0-9].*\)$';
@@ -438,15 +441,16 @@ $HASH_LENGTH_SHA512 = 128;
 # $PackageUpdated  true if only new package is downloaded, otherwise, false
 # $FileObject      the file object of setup.ini, installer, or a package
 # $DownloadParam   the object of download parameters
+# $DownloadUrl     the download URL specified directly for the installer
 
 function DownloadCygwinFile(
     [parameter(Mandatory=$true)][boolean]$PackageUpdated,
     [parameter(Mandatory=$true)][Object]$FileObject,
-    [parameter(Mandatory=$true)][Object]$DownloadParam) {
+    [parameter(Mandatory=$true)][Object]$DownloadParam, [string]$DownloadUrl="") {
     $response = $null;
     $stream = $null;
     $writer = $null;
-    $url = $DownloadParam.UrlBuilder.Append($FileObject.($FIELD_PATH)).ToString();
+    $url = $DownloadUrl;
     $state = $FileObject.($FIELD_STATE);
     $size = 0L;
     $date = $null;
@@ -458,6 +462,9 @@ function DownloadCygwinFile(
     $setupdownloaded = $state -eq $STATE_PENDING;
 
     try {
+        if ($url -eq "") {
+            $url = $DownloadParam.UrlBuilder.Append($FileObject.($FIELD_PATH)).ToString();
+        }
 
         # Gets the timestamp and http response of downloaded file
 
@@ -659,10 +666,19 @@ function CreateFileObject(
 $FIXED_FIELDS = @($FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION);
 $FIXED_LONG_FIELDS = `
     @($FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_LONG_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION);
+
 $FIXED_FILE_FIELDS = @($FIELD_PATH, $FIELD_SIZE, $FIELD_STATE);
-$FIXED_FILE_LONG_FIELDS = @($FIELD_PATH, $FIELD_SIZE, $FIELD_HASH, $FIELD_STATE);
+$FIXED_FILE_CHECKED_FIELDS = @($FIELD_PATH, $FIELD_SIZE, $FIELD_HASH, $FIELD_STATE);
 $FIXED_DOWNLOAD_FIELDS = @($FIELD_PATH, $FIELD_SIZE, $FIELD_DATE, $FIELD_STATE);
-$FIXED_DOWNLOAD_LONG_FIELDS = @($FIELD_PATH, $FIELD_SIZE, $FIELD_HASH, $FIELD_DATE, $FIELD_STATE);
+$FIXED_DOWNLOAD_CHECKED_FIELDS = `
+    @($FIELD_PATH, $FIELD_SIZE, $FIELD_HASH, $FIELD_DATE, $FIELD_STATE);
+
+$FIXED_INSTALL_FIELDS = `
+    @($FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION,
+    $FIELD_INSTALL, $FIELD_DEPENDS);
+$FIXED_INSTALL_LONG_FIELDS = `
+    @($FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_LONG_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION,
+    $FIELD_INSTALL, $FIELD_DEPENDS);
 
 # Returns the information selected for the specified file object of a package.
 #
@@ -674,9 +690,9 @@ function SelectFileInformation(
     $filefields = $FIXED_FILE_FIELDS;
     if ($HashValueOutput) {
         if ($FileObject.($FIELD_DATE) -ne $null) {
-            $filefields = $FIXED_DOWNLOAD_LONG_FIELDS;
+            $filefields = $FIXED_DOWNLOAD_CHECKED_FIELDS;
         } else {
-            $filefields = $FIXED_FILE_LONG_FIELDS;
+            $filefields = $FIXED_FILE_CHECKED_FIELDS;
         }
     } elseif ($FileObject.($FIELD_DATE) -ne $null) {
         $filefields = $FIXED_DOWNLOAD_FIELDS;
@@ -695,6 +711,7 @@ function SelectPackageInformation(
     $srcobj = $PackageObject.($FIELD_SOURCE);
     $fieldlist = $SelectParam.FieldList;
     $fieldcount = $fieldlist.Count;
+    $fieldfixed = $true;
 
     # Removes optional and/or supplemetal fields appended previously from the field list.
 
@@ -705,9 +722,10 @@ function SelectPackageInformation(
 
     $PackageObject.($FIELD_CATEGORY) = $PackageObject.($FIELD_CATEGORY).Split(' ');
 
-    if ($SelectParam.ReplaceVersionsSupplemented `
+    if ($SelectParam.ReplaceVersionsOutput `
         -and ($PackageObject.($FIELD_REPLACE_VERSIONS) -ne $null)) {
         [void]$fieldlist.Add($FIELD_REPLACE_VERSIONS);
+        $fieldfixed = $false;
     }
     if ($instobj -ne $null) {
         $PackageObject.($FIELD_INSTALL) = SelectFileInformation $instobj $SelectParam.HashOutput;
@@ -716,38 +734,52 @@ function SelectPackageInformation(
     if ($srcobj -ne $null) {
         $PackageObject.($FIELD_SOURCE) = SelectFileInformation $srcobj $SelectParam.HashOutput;
         [void]$fieldlist.Add($FIELD_SOURCE);
+        $fieldfixed = $false;
     }
 
-    # Replaces the array of values with the string in the field added to the object
+    # Replaces the string with the array of values in the field added to the object
 
-    if ($SelectParam.RequiresSupplemented -and ($PackageObject.($FIELD_REQUIRES) -ne $null)) {
-        $PackageObject.($FIELD_REQUIRES) = $PackageObject.($FIELD_REQUIRES).Split(' ');
-        [void]$fieldlist.Add($FIELD_REQUIRES);
-    }
     if ($PackageObject.($FIELD_DEPENDS) -ne $null) {
         $PackageObject.($FIELD_DEPENDS) = `
             $PackageObject.($FIELD_DEPENDS).Replace(' ', "").Split(',');
         [void]$fieldlist.Add($FIELD_DEPENDS);
+        $fieldfixed = $false;
+    } elseif ($PackageObject.($FIELD_REQUIRES) -ne $null) {
+        $PackageObject.($FIELD_DEPENDS) = $PackageObject.($FIELD_REQUIRES).Split(' ');
+        [void]$fieldlist.Add($FIELD_DEPENDS);
+        $fieldfixed = $false;
     }
-    if ($SelectParam.ObsoletesSupplemented -and ($PackageObject.($FIELD_OBSOLETES) -ne $null)) {
+    if ($SelectParam.ObsoletesOutput -and ($PackageObject.($FIELD_OBSOLETES) -ne $null)) {
         $PackageObject.($FIELD_OBSOLETES) = `
             $PackageObject.($FIELD_OBSOLETES).Replace(' ', "").Split(',');
         [void]$fieldlist.Add($FIELD_OBSOLETES);
+        $fieldfixed = $false;
     }
-    if ($SelectParam.ConflictsSupplemented -and ($PackageObject.($FIELD_CONFLICTS) -ne $null)) {
+    if ($SelectParam.ConflictsOutput -and ($PackageObject.($FIELD_CONFLICTS) -ne $null)) {
         $PackageObject.($FIELD_CONFLICTS) = `
             $PackageObject.($FIELD_CONFLICTS).Replace(' ', "").Split(',');
         [void]$fieldlist.Add($FIELD_CONFLICTS);
+        $fieldfixed = $false;
     }
     if ($PackageObject.($FIELD_PROVIDES) -ne $null) {
         $PackageObject.($FIELD_PROVIDES) = `
             $PackageObject.($FIELD_PROVIDES).Replace(' ', "").Split(',');
         [void]$fieldlist.Add($FIELD_PROVIDES);
+        $fieldfixed = $false;
     }
     if ($PackageObject.($FIELD_BUILD_DEPENDS) -ne $null) {
         $PackageObject.($FIELD_BUILD_DEPENDS) = `
             $PackageObject.($FIELD_BUILD_DEPENDS).Replace(' ', "").Split(',');
         [void]$fieldlist.Add($FIELD_BUILD_DEPENDS);
+        $fieldfixed = $false;
+    }
+
+    if ($fieldfixed) {
+        if ($fieldlist.Contains($FIELD_LONG_DESCRIPTION)) {
+            $fieldlist = $FIXED_INSTALL_LONG_FIELDS;
+        } else {
+            $fieldlist = $FIXED_INSTALL_FIELDS;
+        }
     }
 
     return $PackageObject | Select-Object $fieldlist;
@@ -789,76 +821,87 @@ $TIME_MACHINE_SETUP_TIMESTAMP_2926 = 1706773736;
 
 # The file or directory names of setup.exe and setup.ini
 
-$SETUP_X86_ROOT = $ARCH_X86 + '/';
-$SETUP_X86_PACKAGE_ROOT = $SETUP_X86_ROOT + 'release/';
-$SETUP_X86_PREFIX = 'setup-x86';
-$SETUP_X64_ROOT = $ARCH_X64 + '/';
-$SETUP_X64_PACKAGE_ROOT = $SETUP_X64_ROOT + 'release/';
-$SETUP_X64_PREFIX = 'setup-x86_64';
-$SETUP_NOARCH_PACKAGE_ROOT = 'noarch/release/';
+$SETUP_PREFIX = 'setup-';
+$SETUP_X86_PREFIX = $SETUP_PREFIX + $ARCH_X86;
+$SETUP_X64_PREFIX = $SETUP_PREFIX + $ARCH_X64;
+
+$SETUP_X86_EXE = $SETUP_X86_PREFIX + '.exe';
+$SETUP_X64_EXE = $SETUP_X64_PREFIX + '.exe';
+$SETUP_LEGACY_EXE = $SETUP_PREFIX + 'legacy.exe';
 $SETUP_INI = 'setup.ini';
+
+$SETUP_DIRECTORY = 'setup/';
+$SETUP_LEGACY_DIRECTORY = 'legacy/';
+$SETUP_SNAPSHOTS_DIRECTORY = 'snapshots/';
+
+$SETUP_INSTALLER_NAME = 'Cygwin Installer';
+$SETUP_LEGACY_INSTALLER_NAME = 'Cygwin Legacy Installer';
+
 $SETUP_INI_FIXED_FIELDS = @(
-    $FIELD_NAME, $FIELD_TIMESTAMP, $FIELD_MINIMUM_VERSION, $FIELD_VERSION,
-    $FIELD_INSTALL, $FIELD_MIRROR);
+    $FIELD_NAME, $FIELD_RELEASE, $FIELD_ARCH, $FIELD_TIMESTAMP, $FIELD_MINIMUM_VERSION,
+    $FIELD_VERSION, $FIELD_INSTALL, $FIELD_MIRROR);
 $SETUP_EXE_FIXED_FIELDS = @($FIELD_NAME, $FIELD_VERSION, $FIELD_INSTALL, $FIELD_URL);
 
 # Returns the object to set the information of Cygwin installer.
 #
-# $SetupArch       the architecture to install the Cygwin
-# $SetupTimestamp  the timestamp of setup.ini
+# $SetupIni  the object of setup.ini
 
-function CreateCygwinInstallerObject(
-    [parameter(Mandatory=$true)][string]$SetupArch,
-    [parameter(Mandatory=$true)][long]$SetupTimestamp) {
-    $instobj = CreateFileObject $true ($SETUP_X64_PREFIX + '.exe');
-    $setupprefix = $SETUP_X86_PREFIX;
-    $setupobj = New-Object PSObject -Prop @{
-        $FIELD_NAME = 'Cygwin installer';
-        $FIELD_VERSION = "";
-        $FIELD_INSTALL = $instobj;
-        $FIELD_URL = $CYGWIN_WEBSITE + $SETUP_X64_PREFIX + '.exe';
-    };
+function CreateCygwinInstallerObject([parameter(Mandatory=$true)][Object]$SetupIni) {
+    $setuparch = $SetupIni.($FIELD_ARCH);
+    $setuptimestamp = $SetupIni.($FIELD_TIMESTAMP);
     $setupversion = $null;
-    $setupmirror = $TIME_MACHINE_MIRROR -replace '[a-z]+/$', "setup/";
-    switch ($SetupArch) {
-        $ARCH_X86 {
-            if ($SetupTimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_LEGACY) {
-                $setupobj.($FIELD_NAME) = 'Cygwin legacy installer';
-                $setupobj.($FIELD_VERSION) = '2.674';
-                $instobj.($FIELD_PATH) = 'setup-legacy.exe';
-                $setupobj.($FIELD_URL) = $setupmirror + 'legacy/' + $instobj.($FIELD_PATH);
+    $setupobj = New-Object PSObject -Prop @{
+        $FIELD_NAME = $SETUP_INSTALLER_NAME;
+        $FIELD_VERSION = $null;
+        $FIELD_INSTALL = $null;
+        $FIELD_URL = $null;
+    };
+    $dlfileprefix = $SETUP_X86_PREFIX + '-';
+    $dlmirror = $TIME_MACHINE_MIRROR -replace '[a-z]+/$', $SETUP_DIRECTORY;
+    switch ($setuparch) {
+        $ARCH_X64 {
+            $setupobj.($FIELD_INSTALL) = CreateFileObject $true $SETUP_X64_EXE;
+            if ($setuptimestamp -gt $TIME_MACHINE_SETUP_TIMESTAMP_2926) {
+
+                # Uses the Cygwin installer of each version, downloaded from cygwin.com
+
+                $setupversion = $SetupIni.($FIELD_VERSION);
+                $dlfile = $SETUP_PREFIX + $setupversion + "." + $setuparch + '.exe';
+                $setupobj.($FIELD_VERSION) = $setupversion;
+                $setupobj.($FIELD_URL) = $CYGWIN_WEBSITE + $SETUP_DIRECTORY + $dlfile;
                 return $setupobj;
-            } elseif ($SetupTimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2774) {
-                $setupprefix = 'setup';
+            }
+            $dlfileprefix = $SETUP_X64_PREFIX + '-';
+            break;
+        }
+        $ARCH_X86 {
+            $setupobj.($FIELD_INSTALL) = CreateFileObject $true $SETUP_X86_EXE;
+            if ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_LEGACY) {
+                $setupobj.($FIELD_NAME) = $SETUP_LEGACY_INSTALLER_NAME;
+                $setupobj.($FIELD_VERSION) = '2.674';
+                $setupobj.($FIELD_URL) = $dlmirror + $SETUP_LEGACY_DIRECTORY + $SETUP_LEGACY_EXE;
+                return $setupobj;
+            } elseif ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2774) {
+                $dlfileprefix = $SETUP_PREFIX;
                 $setupversion = '2.774';
             }
             break;
         }
-        $ARCH_X64 {
-            if ($SetupTimestamp -gt $TIME_MACHINE_SETUP_TIMESTAMP_2926) {
-
-                # Uses the Cygwin installer of the current version, downloaded from cygwin.com
-
-                return $setupobj;
-            }
-            $setupprefix = $SETUP_X64_PREFIX;
-            break;
-        }
     }
     if ($setupversion -eq $null) {
-        if ($SetupTimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2874) {
+        if ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2874) {
             $setupversion = '2.874';
-        } elseif ($SetupTimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2909) {
+        } elseif ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2909) {
             $setupversion = '2.909';
-        } elseif ($SetupTimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2924) {
+        } elseif ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2924) {
             $setupversion = '2.924';
-        } elseif ($SetupTimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2926) {
+        } elseif ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2926) {
             $setupversion = '2.926';
         }
     }
+    $dlfile = $dlfileprefix + $setupversion + '.exe';
     $setupobj.($FIELD_VERSION) = $setupversion;
-    $instobj.($FIELD_PATH) = $setupprefix + '-' + $setupversion + '.exe';
-    $setupobj.($FIELD_URL) = $setupmirror + 'snapshots/' + $instobj.($FIELD_PATH);
+    $setupobj.($FIELD_URL) = $dlmirror + $SETUP_SNAPSHOTS_DIRECTORY + $dlfile;
     return $setupobj;
 }
 
@@ -884,18 +927,20 @@ if ($TimeMachine -ne "") {
 # Sets the object of setup.ini on 'x86' or 'x86_64' directory
 
 $SetupIni = New-Object PSObject -Prop @{
-    $FIELD_NAME = 'Cygwin setup.ini';
+    $FIELD_NAME = 'setup.ini';
+    $FIELD_RELEASE = "";
+    $FIELD_ARCH = $Arch;
     $FIELD_TIMESTAMP = "";
     $FIELD_MINIMUM_VERSION = "";
     $FIELD_VERSION = "";
 };
-$SetupIniState = $STATE_PENDING;
 $SetupIniPath = $null;
 if ($Arch -eq $ARCH_X86) {
     $SetupIniPath = $ARCH_X86 + '/' + $SETUP_INI;
 } else {
     $SetupIniPath = $ARCH_X64 + '/' + $SETUP_INI;
 }
+$SetupIniState = $STATE_PENDING;
 
 # The progress of extracting or downloading package
 
@@ -998,11 +1043,10 @@ if ($Download.IsPresent -or $DownloadForce.IsPresent) {
 $SelectParam = New-Object PSObject -Prop @{
     'FieldList' = $null;
     'FixedFieldCount' = 0;
-    'ReplaceVersionsSupplemented' = $Supplement.Contains($FIELD_REPLACE_VERSIONS);
+    'ReplaceVersionsOutput' = $Supplement.Contains($FIELD_REPLACE_VERSIONS);
     'HashOutput' = $Supplement.Contains($FIELD_HASH);
-    'RequiresSupplemented' = $true;
-    'ObsoletesSupplemented' = $Supplement.Contains($FIELD_OBSOLETES);
-    'ConflictsSupplemented' = $Supplement.Contains($FIELD_CONFLICTS);
+    'ObsoletesOutput' = $Supplement.Contains($FIELD_OBSOLETES);
+    'ConflictsOutput' = $Supplement.Contains($FIELD_CONFLICTS);
 };
 if ($Supplement.Contains($FIELD_LONG_DESCRIPTION)) {
     $SelectParam.FieldList = [System.Collections.ArrayList]::new($FIXED_LONG_FIELDS);
@@ -1108,19 +1152,26 @@ try {
                 $value = $text.Substring($index + 1).Trim();
 
                 switch ($name) {
-                    'setup-timestamp' {  # "setup-timestamp: 9999999999
-                        $timestamp = [long]::Parse($value);
-                        if ($Downloaded) {
-                            $SetupExe = CreateCygwinInstallerObject $Arch $timestamp;
-                        }
-                        $SetupIni.($FIELD_TIMESTAMP) = $timestamp;
+                    'release' {  # release: cygwin
+                        $SetupIni.($FIELD_RELEASE) = $value;
                         break;
                     }
-                    'setup-minimum-version' {  # "setup-minimum-version: 2.xxx
+                    'arch' {  # arch: x86(_64)?
+                        if (($value -ne "") -and ($value -ne $SetupIni.($FIELD_ARCH))) {
+                            Write-Error "Setup.ini is incorrect" -Category InvalidArgument;
+                            exit 1;
+                        }
+                        break;
+                    }
+                    'setup-timestamp' {  # setup-timestamp: 9999999999
+                        $SetupIni.($FIELD_TIMESTAMP) = [long]::Parse($value);
+                        break;
+                    }
+                    'setup-minimum-version' {  # setup-minimum-version: 2.xxx
                         $SetupIni.($FIELD_MINIMUM_VERSION) = $value;
                         break;
                     }
-                    'setup-version' {  # "setup-version: 2.xxx
+                    'setup-version' {  # setup-version: 2.xxx
                         $SetupIni.($FIELD_VERSION) = $value;
                         break;
                     }
@@ -1142,7 +1193,22 @@ try {
         $current = $true;
 
         do {
-            if ($text.StartsWith('@ ')) {  # "@ xxx"
+            $text = $text.Trim();
+
+            if ($textquoted) {
+                $textquoted = -not $text.EndsWith('"');
+
+                if ($longdesc -ne $null) {
+
+                    # Ends the description started from the previous line with the double quote
+
+                    $longdesc += "`n" + ($text -replace '"$', "");
+                    if (-not $textquoted) {  # ...xxx xxxxx."
+                        $packobj | Add-Member NoteProperty ($FIELD_LONG_DESCRIPTION) $longdesc;
+                        $longdesc = $null;
+                    }
+                }
+            } elseif ($text.StartsWith('@ ')) {  # @ xxx
                 $Progress.Show();
 
                 $packname = $text.Substring(2).Trim();
@@ -1151,14 +1217,11 @@ try {
                     $FIELD_DESCRIPTION = "";
                     $FIELD_CATEGORY = "";
                     $FIELD_VERSION = "";
+                    $FIELD_INSTALL = $null;
                     $FIELD_INSTALL_TARGETED = $Package.Contains($packname);
                     $FIELD_SOURCE_TARGETED = $Source.Contains($packname);
-                    $FIELD_INSTALL = $null;
-                    $FIELD_SOURCE = $null;
                     $FIELD_REQUIRES = $null;
                     $FIELD_DEPENDS = $null;
-                    $FIELD_PROVIDES = $null;
-                    $FIELD_BUILD_DEPENDS = $null;
                 };
                 $longdesc = $null;
                 $current = $true;
@@ -1179,22 +1242,9 @@ try {
                         }
                     }
                 }
-            } elseif ($text.StartsWith('[') `
-                -and (-not $text.StartsWith('[curr]'))) {  # "[prev]" or "[test]"
-                $current = $false;
-            } elseif ($textquoted) {
-                $text = $text.Trim();
-                $textquoted = -not $text.EndsWith('"');
-
-                if ($longdesc -ne $null) {
-
-                    # Ends the description started from the previous line with the double quote
-
-                    $longdesc += "`n" + ($text -replace '"$', "");
-                    if (-not $textquoted) {  # ...xxx xxxxx."
-                        $packobj | Add-Member NoteProperty ($FIELD_LONG_DESCRIPTION) $longdesc;
-                        $longdesc = $null;
-                    }
+            } elseif ($text.StartsWith('[') -and $text.EndsWith(']')) {
+                if (-not $text.StartsWith('[curr]')) {  # "[prev]" or "[test]"
+                    $current = $false;
                 }
             } elseif ($current) {
 
@@ -1225,9 +1275,9 @@ try {
                         'category' {  # category: xxx yyy zzz
                             if ((-not $packobj.($FIELD_INSTALL_TARGETED)) `
                                 -and (-not $packobj.($FIELD_SOURCE_TARGETED))) {
-                                $list = $value.Split(' ');
-                                for ($i = 0; $i -lt $list.Count; $i++) {
-                                    if ($Category.Contains($list[$i])) {
+                                $categories = $value.Split(' ');
+                                for ($i = 0; $i -lt $categories.Count; $i++) {
+                                    if ($Category.Contains($categories[$i])) {
                                         $packobj.($FIELD_INSTALL_TARGETED) = $true;
                                         [void]$TargetedPackageList.Add($packname);
                                         break;
@@ -1243,8 +1293,7 @@ try {
                         }
                         'replace-versions' {  # replace-versions: xxx yyy zzz
                             if ($Supplement.Contains($FIELD_REPLACE_VERSIONS)) {
-                                $list = $value.Split(' ');
-                                $packobj | Add-Member NoteProperty ($FIELD_REPLACE_VERSIONS) $list;
+                                $packobj | Add-Member NoteProperty ($FIELD_REPLACE_VERSIONS) $value;
                             }
                             break;
                         }
@@ -1267,8 +1316,13 @@ try {
                         }
                         'source' {
                             # source: ((x86)?/release/()?(xxx)(/yyy)+) (999) (fa5b...)
-                            $packobj.($FIELD_SOURCE) = $value;
+                            if ($packobj.($FIELD_SOURCE_TARGETED)) {
+                                $packobj | Add-Member NoteProperty ($FIELD_SOURCE) $value;
+                            }
                             break;
+                        }
+                        'message' {  # message: "Xxxxx xxx...
+                            $textquoted = -not $value.EndsWith('"');
                         }
                         'depends' {  # depends: xxx ( >= 9.99), yyy, zzz
                             $packobj.($FIELD_DEPENDS) = $value;
@@ -1280,15 +1334,13 @@ try {
                         }
                         'obsoletes' {  # obsoletes: xxx ( >= 9.99), yyy, zzz
                             if ($Supplement.Contains($FIELD_OBSOLETES)) {
-                                $list = $value.Replace(' ', "").Split(',');
-                                $packobj | Add-Member NoteProperty ($FIELD_OBSOLETES) $list;
+                                $packobj | Add-Member NoteProperty ($FIELD_OBSOLETES) $value;
                             }
                             break;
                         }
                         'conflicts' {  # conflicts: xxx ( >= 9.99), yyy, zzz
                             if ($Supplement.Contains($FIELD_CONFLICTS)) {
-                                $list = $value.Replace(' ', "").Split(',');
-                                $packobj | Add-Member NoteProperty ($FIELD_CONFLICTS) $list;
+                                $packobj | Add-Member NoteProperty ($FIELD_CONFLICTS) $value;
                             }
                             break;
                         }
@@ -1307,11 +1359,13 @@ try {
                                     [void]$provset.Add($packobj);
                                 }
                             }
-                            $packobj.($FIELD_PROVIDES) = $value;
+                            $packobj | Add-Member NoteProperty ($FIELD_PROVIDES) $value;
                             break;
                         }
                         'build-depends' {  # build-depends: xxx ( >= 9.99), yyy, zzz
-                            $packobj.($FIELD_BUILD_DEPENDS) = $value;
+                            if ($packobj.($FIELD_SOURCE_TARGETED)) {
+                                $packobj | Add-Member NoteProperty ($FIELD_BUILD_DEPENDS) $value;
+                            }
                             break;
                         }
                     }
@@ -1336,14 +1390,15 @@ try {
         Write-Output $SetupIni | Select-Object $SETUP_INI_FIXED_FIELDS;
 
         if ($SetupIniState -eq $STATE_OLDER) {
-            # Never download the installer if old setup.ini exists in the mirror site
+
+            # Never download files from the mirror site if old setup.ini exists
+
             exit 0;
         }
+        $SetupExe = CreateCygwinInstallerObject $SetupIni;
         $instobj = $SetupExe.($FIELD_INSTALL);
-        $DownloadParam.UrlBuilder.Length = 0;
-        [void]$DownloadParam.UrlBuilder.Append(($SetupExe.($FIELD_URL) -replace '[^/]*$', ""));
 
-        DownloadCygwinFile $PackageUpdated $instobj $DownloadParam;
+        DownloadCygwinFile $PackageUpdated $instobj $DownloadParam $SetupExe.($FIELD_URL);
 
         $SetupExe.($FIELD_INSTALL) = SelectFileInformation $instobj;
         Write-Output $SetupExe | Select-Object $SETUP_EXE_FIXED_FIELDS;
@@ -1418,23 +1473,20 @@ try {
             $targetedcount = 0;
             do {
                 $packobj = $PackageMap.Item($TargetedPackageList.Item($index));
-                $list = $null;
-                if ($packobj.($FIELD_INSTALL_TARGETED)) {
-                    if ($packobj.($FIELD_REQUIRES) -ne $null) {
-                        $list = $packobj.($FIELD_REQUIRES).Split(' ');
-                    } elseif ($packobj.($FIELD_DEPENDS) -ne $null) {
-                        $list = $packobj.($FIELD_DEPENDS).Replace(' ', "").Split(',');
-                    }
+                $depnames = "";
+                if ($packobj.($FIELD_DEPENDS) -ne $null) {
+                    $depnames = $packobj.($FIELD_DEPENDS).Replace(' ', "");
+                } elseif ($packobj.($FIELD_REQUIRES) -ne $null) {
+                    $depnames = $packobj.($FIELD_REQUIRES).Replace(' ', ',');
                 }
-                if ($packobj.($FIELD_SOURCE_TARGETED) `
-                    -and ($packobj.($FIELD_BUILD_DEPENDS) -ne $null)) {
-                    $list = $packobj.($FIELD_BUILD_DEPENDS).Replace(' ', "").Split(',');
+                if ($packobj.($FIELD_BUILD_DEPENDS) -ne $null) {
+                    $depnames += ',' + $packobj.($FIELD_BUILD_DEPENDS).Replace(' ', "");
                 }
-                if ($list -ne $null) {
-                    $list | ForEach-Object {
+                if ($depnames -ne "") {
+                    $depnames.Split(',') | ForEach-Object {
                         $depname = $_ -replace $DEPENDED_PACKAGE_SUFFIX_EXPR, "";
                         $depobj = $PackageMap.Item($depname);
-                        if ($depobj -ne $null) {  # The name of a package depended by others
+                        if ($depobj -ne $null) {  # The object of a package depended by others
                             if (-not $TargetedPackageList.Contains($depname)) {
                                 $depobj.($FIELD_INSTALL_TARGETED) = $true;
                                 [void]$TargetedPackageList.Add($depname);
@@ -1478,7 +1530,7 @@ try {
         $srcobj = $null;
 
         # Creates the file object of a targeted package to output the information and/or download
-        # binary and source files, and replaces those with the string in Install and Source field
+        # binary and source files, and replaces the string with those in Install or Source field
 
         if ($packobj.($FIELD_INSTALL_TARGETED)) {
             $match = $packinstregex.Match($packobj.($FIELD_INSTALL));
@@ -1487,6 +1539,7 @@ try {
                 $size = [long]::Parse($match.Groups[6].Value);
                 $hashvalue = $match.Groups[7].Value;
                 $instobj = CreateFileObject $Downloaded $filepath $size $hashvalue $STATE_NEW;
+                $packobj.($FIELD_INSTALL) = $instobj;
             }
         }
         if ($packobj.($FIELD_SOURCE_TARGETED)) {
@@ -1496,10 +1549,9 @@ try {
                 $size = [long]::Parse($match.Groups[6].Value);
                 $hashvalue = $match.Groups[7].Value;
                 $srcobj = CreateFileObject $Downloaded $filepath $size $hashvalue $STATE_NEW;
+                $packobj.($FIELD_SOURCE) = $srcobj;
             }
         }
-        $packobj.($FIELD_INSTALL) = $instobj;
-        $packobj.($FIELD_SOURCE) = $srcobj;
 
         # Compares the version with the same package which has been installed on the local
 
@@ -1521,8 +1573,6 @@ try {
                 $srcobj.($FIELD_STATE) = $STATE_OLDER;
             }
         }
-
-        $SelectParam.RequiresSupplemented = $packobj.($FIELD_DEPENDS) -eq $null;
 
         if ($Downloaded) {
 

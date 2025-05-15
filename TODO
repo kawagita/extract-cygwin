@@ -1,0 +1,4 @@
+Extract-Cygwin.ps1
+==================
+
+- target the test version when the current is not written in the package section
