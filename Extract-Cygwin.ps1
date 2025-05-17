@@ -21,14 +21,11 @@
     Selects the mirror site at random if present in the specified country with -Download.
 
 .PARAMETER Depends
-    Targets Cygwin packages required or depended by other packages, same as -Requires.
+    Targets Cygwin packages needed by other packages, same as -Requires.
 
 .PARAMETER Download
-    Downloads Cygwin setup.ini, installer, and packages whose state are 'New'. If setup.ini is
+    Downloads Cygwin installer, setup.ini, and packages whose state are 'New'. If setup.ini is
     older than the same file on the root of x86 or x86_64 directory, those are never downloaded.
-
-.PARAMETER DownloadForce
-    Downloads Cygwin pacages regardless of the state.
 
 .PARAMETER Local
     Reads the version of Cygwin packages which have already been installed to the specified path
@@ -51,7 +48,7 @@
     Targets Cygwin packages whose name matchs the specified regular expression.
 
 .PARAMETER Requires
-    Targets Cygwin packages required or depended by other packages, same as -Depends.
+    Targets Cygwin packages needed by other packages, same as -Depends.
 
 .PARAMETER Root
     Sets the root of x86 or x86_64 directory to the specified path.
@@ -62,6 +59,9 @@
 .PARAMETER Supplement
     Outputs the specified information of packages extracted from setup.ini.
 
+.PARAMETER TargetLocalPackage
+    Targets Cygwin packages which have already been installed to the path specified by -Local.
+
 .PARAMETER TimeMachine
     Downloads Cygwin setup.ini and packages for Windows 2000, XP, Vista, or 7 from the Cygwin Time
     Machine mirror site (http://ctm.crouchingtigerhiddenfruitbat.org/pub/cygwin/circa/).
@@ -69,31 +69,6 @@
 .LINK
     Cygwin Project:      https://cygwin.com/
     Cygwin Time Machine: http://www.crouchingtigerhiddenfruitbat.org/Cygwin/timemachine.html
-
-.EXAMPLE
-    C:\PS> .\Extract-Cygwin.ps1 x86_64 -Package cygwin -Download
-
-    Name           : setup.ini
-    Release        : cygwin
-    Arch           : x86_64
-    Timestamp      : 1747224847
-    MinimumVersion : 2.903
-    Version        : 2.933
-    Install        : @{Path=x86_64/setup.ini; Size=18642447; Date=2025/05/14 21:14:11; State=New}
-    Mirror         : http://ftp.jaist.ac.jp/pub/cygwin/
-
-    Name    : Cygwin Installer
-    Version : 2.933
-    Install : @{Path=setup-x86_64.exe; Size=1573296; Date=2025/04/05 2:08:04; State=New}
-    URL     : https://cygwin.com/setup/setup-2.933.x86_64.exe
-
-    Name        : cygwin
-    Description : The UNIX emulation engine
-    Category    : {Base}
-    Version     : 3.6.1-1
-    Install     : @{Path=x86_64/release/cygwin/cygwin-3.6.1-1-x86_64.tar.xz; Size=1584656; Date=
-                  2025/04/09 20:40:22; State=New}
-    Depends     : {_windows(>=6.3), bash, libgcc1, libintl8...}
 #>
 
 # Parametes of this script
@@ -106,7 +81,6 @@ param(
     [string]$Country="",
     [switch]$Depends,
     [switch]$Download,
-    [switch]$DownloadForce,
     [string]$Local="",
     [string]$Mirror="",
     [string[]]$Package=@(),
@@ -118,12 +92,13 @@ param(
     [string[]]$Source=@(),
     [ValidateSet('Conflicts', 'Hash', 'LongDescription', 'Obsoletes', 'ReplaceVersions')]
     [string[]]$Supplement=@(),
+    [switch]$TargetLocalPackage,
     [ValidateSet('2000', 'XP', 'Vista', '7')]
     [string]$TimeMachine=""
 )
 
-if (($Root -ne "") -and (-not [IO.Directory]::Exists($Root))) {
-    New-Item $Root -ItemType Directory 2> $null;
+if ($Root -ne "") {
+    New-Item $Root -ItemType Directory -Force > $null 2>&1;
     if (-not $?) {
         Write-Error "Specified root is not writable" -Category InvalidArgument;
         exit 1;
@@ -337,6 +312,7 @@ $FIELD_DESCRIPTION = 'Description';
 $FIELD_LONG_DESCRIPTION = 'LongDescription';  # Specified by -Supplement
 $FIELD_CATEGORY = 'Category';
 $FIELD_VERSION = 'Version';
+$FIELD_VERSION_LABEL = 'VersionLabel';        # Temporary field
 $FIELD_REPLACE_VERSIONS = 'ReplaceVersions';  # Specified by -Supplement (Optional)
 $FIELD_INSTALL = 'Install';                   # Added for the package specified by -Package
 $FIELD_INSTALL_TARGETED = 'InstallTargeted';  # Temporary field
@@ -438,13 +414,11 @@ $HASH_LENGTH_SHA512 = 128;
 
 # Downloads the file for the specified object from the mirror site.
 #
-# $PackageUpdated  true if only new package is downloaded, otherwise, false
-# $FileObject      the file object of setup.ini, installer, or a package
+# $FileObject      the file object of installer, setup.ini, or a package
 # $DownloadParam   the object of download parameters
 # $DownloadUrl     the download URL specified directly for the installer
 
 function DownloadCygwinFile(
-    [parameter(Mandatory=$true)][boolean]$PackageUpdated,
     [parameter(Mandatory=$true)][Object]$FileObject,
     [parameter(Mandatory=$true)][Object]$DownloadParam, [string]$DownloadUrl="") {
     $response = $null;
@@ -458,7 +432,7 @@ function DownloadCygwinFile(
     $filepath = $DownloadParam.Root + $FileObject.($FIELD_PATH);
     $fileparent = $DownloadParam.Root + $filematch.Groups[1].Value;
     $dlfile = $filematch.Groups[2].Value;
-    $dlpath = $env:TEMP + '\\' + $dlfile;
+    $dlpath = $DownloadParam.Temp + $dlfile;
     $setupdownloaded = $state -eq $STATE_PENDING;
 
     try {
@@ -482,8 +456,7 @@ function DownloadCygwinFile(
         }
 
         if ($setupdownloaded -or $FileObject.($FIELD_SIZE).Equals($size)) {
-            if ($PackageUpdated `
-                -and (($state -eq $STATE_UNCHANGED) -or ($state -eq $STATE_OLDER))) {
+            if (($state -eq $STATE_UNCHANGED) -or ($state -eq $STATE_OLDER)) {
 
                 # Never download the package if the same has been installed to the local
                 # and it's newer or unchaned, and its state has been set for the object
@@ -637,13 +610,13 @@ function GetResponse([parameter(Mandatory=$true)][string]$URL, [string]$Method="
 }
 
 
-# Returns the file object of Cygwin setup.ini, installer, and packages.
+# Returns the file object of Cygwin installer, setup.ini, and packages.
 #
 # $FileDownloaded  true if the file is downloaded, otherwise, false
 # $FilePath        the file path from the root of 'x86' or 'x86_64' directory
 # $FileSize        the size of a file
 # $FileHashValue   the hash value of a file
-# $FileState       the state of setup.ini, installer, or a package
+# $FileState       the state of installer, setup.ini, or a package
 
 function CreateFileObject(
     [parameter(Mandatory=$true)][boolean]$FileDownloaded,
@@ -682,7 +655,7 @@ $FIXED_INSTALL_LONG_FIELDS = `
 
 # Returns the information selected for the specified file object of a package.
 #
-# $FileObject       the file object of setup.ini, installer, or a package
+# $FileObject       the file object of installer, setup.ini, or a package
 # $HashValueOutput  true if the hash value is output, otherwise, false
 
 function SelectFileInformation(
@@ -700,9 +673,15 @@ function SelectFileInformation(
     return $FileObject | Select-Object $filefields;
 }
 
+# The label for the version of Cygwin packages
+
+$VERSION_LABEL_CURRENT = 'curr'
+$VERSION_LABEL_PREVIOUS = 'prev'
+$VERSION_LABEL_TEST = 'test'
+
 # Returns the information selected for the specified object of a package.
 #
-# $PackageObject  the object of setup.ini, installer, or a package
+# $PackageObject  the object of installer, setup.ini, or a package
 # $SelectParam    the object of selection parameters
 
 function SelectPackageInformation(
@@ -721,6 +700,13 @@ function SelectPackageInformation(
     }
 
     $PackageObject.($FIELD_CATEGORY) = $PackageObject.($FIELD_CATEGORY).Split(' ');
+
+    if ($PackageObject.($FIELD_VERSION_LABEL) -eq $VERSION_LABEL_TEST) {
+
+        # Appends '(Test)' to the version if the version description is test
+
+        $PackageObject.($FIELD_VERSION) += ' (Test)';
+    }
 
     if ($SelectParam.ReplaceVersionsOutput `
         -and ($PackageObject.($FIELD_REPLACE_VERSIONS) -ne $null)) {
@@ -812,12 +798,81 @@ $TIME_MACHINE_LAST_MIRRORS = @{
 
 # The timestamp written to the header of setup.ini for the version of setup.exe
 
-$TIME_MACHINE_SETUP_TIMESTAMP_LEGACY = 1259724034;
-$TIME_MACHINE_SETUP_TIMESTAMP_2774 = 1372443636;
-$TIME_MACHINE_SETUP_TIMESTAMP_2874 = 1473388972;
-$TIME_MACHINE_SETUP_TIMESTAMP_2909 = 1640710562;
-$TIME_MACHINE_SETUP_TIMESTAMP_2924 = 1677964491;
-$TIME_MACHINE_SETUP_TIMESTAMP_2926 = 1706773736;
+$TIME_MACHINE_SETUP_LEGACY_VERSION = [float]2.674;
+$TIME_MACHINE_SETUP_LAST = [float]2.774;
+$TIME_MACHINE_SETUP_VERSIONS = @(
+    [float]2.679, [float]2.685, [float]2.738, [float]2.740, [float]2.741, [float]2.745,
+    [float]2.747, [float]2.749, [float]2.752, [float]2.754, [float]2.755, [float]2.756,
+    [float]2.762, [float]2.766, [float]2.767, [float]2.773, $TIME_MACHINE_SETUP_LAST
+);
+$TIME_MACHINE_SETUP_X86_X64_LAST = [float]2.926;
+$TIME_MACHINE_SETUP_X86_X64_VERSIONS = @(
+    [float]2.844, [float]2.850, [float]2.852, [float]2.859, [float]2.864, [float]2.867,
+    [float]2.870, [float]2.871, [float]2.872, [float]2.873, [float]2.874, [float]2.876,
+    [float]2.879, [float]2.880, [float]2.881, [float]2.882, [float]2.883, [float]2.884,
+    [float]2.888, [float]2.889, [float]2.877, [float]2.878, [float]2.891, [float]2.893,
+    [float]2.895, [float]2.897, [float]2.898, [float]2.900, [float]2.901, [float]2.903,
+    [float]2.904, [float]2.905, [float]2.908, [float]2.909, [float]2.911, [float]2.912,
+    [float]2.915, [float]2.917, [float]2.918, [float]2.919, [float]2.923, [float]2.924,
+    [float]2.925, $TIME_MACHINE_SETUP_X86_X64_LAST
+);
+
+$TIME_MACHINE_SETUP_TIMESTAMP_LEGACY = 1259724034L;
+$TIME_MACHINE_SETUP_TIMESTAMP_2774 = 1372443636L;
+$TIME_MACHINE_SETUP_TIMESTAMP_2774_VERSION = [float]2.774;
+$TIME_MACHINE_SETUP_TIMESTAMP_2874 = 1473388972L;
+$TIME_MACHINE_SETUP_TIMESTAMP_2874_VERSION = [float]2.874;
+$TIME_MACHINE_SETUP_TIMESTAMP_2909 = 1640710562L;
+$TIME_MACHINE_SETUP_TIMESTAMP_2909_VERSION = [float]2.909;
+$TIME_MACHINE_SETUP_TIMESTAMP_2924 = 1677964491L;
+$TIME_MACHINE_SETUP_TIMESTAMP_2924_VERSION = [float]2.924;
+$TIME_MACHINE_SETUP_TIMESTAMP_2926 = 1706773736L;
+
+# Returns the available version of Cygwin installer.
+#
+# $SetupTimestamp  the timestamp of setup.ini
+# $SetupVersion    the version of setup.ini
+
+function GetCygwinInstallerVersion(
+    [parameter(Mandatory=$true)][float]$SetupTimestamp,
+    [parameter(Mandatory=$true)][string]$SetupVersion) {
+    if ($SetupVersion -ne "") {
+        $match = ([Regex]('^[2-9].[0-9][0-9][0-9]')).Match($SetupVersion);
+        if ($match.Success) {
+            $setupver = [float]::Parse($match.Groups[0].Value);
+            if ($setupver -gt $TIME_MACHINE_SETUP_X86_X64_LAST) {
+                return $setupver;
+            } elseif ($setupver -le $TIME_MACHINE_SETUP_LEGACY_VERSION) {
+                return $TIME_MACHINE_SETUP_LEGACY_VERSION;
+            }
+            $setupvers = $TIME_MACHINE_SETUP_X86_X64_VERSIONS;
+            if ($setupver -le $TIME_MACHINE_SETUP_LAST) {
+                $setupvers = $TIME_MACHINE_SETUP_VERSIONS;
+            }
+            for ($i = $setupvers.Count - 2; $i -ge 0; $i--) {
+                if ($setupver -gt $setupvers[$i]) {
+                    return $setupvers[$i + 1];
+                }
+            }
+            return $setupvers[0];
+        }
+    }
+
+    # Decides the version from the timestamp if not read from setup.ini
+
+    if ($setuptimestamp -gt $TIME_MACHINE_SETUP_TIMESTAMP_2924) {
+        return $TIME_MACHINE_SETUP_TIMESTAMP_2926_VERSION;
+    } elseif ($setuptimestamp -gt $TIME_MACHINE_SETUP_TIMESTAMP_2909) {
+        return $TIME_MACHINE_SETUP_TIMESTAMP_2924_VERSION;
+    } elseif ($setuptimestamp -gt $TIME_MACHINE_SETUP_TIMESTAMP_2874) {
+        return $TIME_MACHINE_SETUP_TIMESTAMP_2909_VERSION;
+    } elseif ($setuptimestamp -gt $TIME_MACHINE_SETUP_TIMESTAMP_2774) {
+        return $TIME_MACHINE_SETUP_TIMESTAMP_2874_VERSION;
+    } elseif ($setuptimestamp -gt $TIME_MACHINE_SETUP_TIMESTAMP_LEGACY) {
+        return $TIME_MACHINE_SETUP_TIMESTAMP_2774_VERSION;
+    }
+    return $TIME_MACHINE_SETUP_LEGACY_VERSION;
+}
 
 # The file or directory names of setup.exe and setup.ini
 
@@ -844,15 +899,15 @@ $SETUP_EXE_FIXED_FIELDS = @($FIELD_NAME, $FIELD_VERSION, $FIELD_INSTALL, $FIELD_
 
 # Returns the object to set the information of Cygwin installer.
 #
-# $SetupIni  the object of setup.ini
+# $SetupObject  the object of setup.ini
 
-function CreateCygwinInstallerObject([parameter(Mandatory=$true)][Object]$SetupIni) {
-    $setuparch = $SetupIni.($FIELD_ARCH);
-    $setuptimestamp = $SetupIni.($FIELD_TIMESTAMP);
-    $setupversion = $null;
+function CreateCygwinInstallerObject([parameter(Mandatory=$true)][Object]$SetupObject) {
+    $setuparch = $SetupObject.($FIELD_ARCH);
+    $setupversion = `
+        GetCygwinInstallerVersion $SetupObject.($FIELD_TIMESTAMP) $SetupObject.($FIELD_VERSION);
     $setupobj = New-Object PSObject -Prop @{
         $FIELD_NAME = $SETUP_INSTALLER_NAME;
-        $FIELD_VERSION = $null;
+        $FIELD_VERSION = $setupversion;
         $FIELD_INSTALL = $null;
         $FIELD_URL = $null;
     };
@@ -861,13 +916,12 @@ function CreateCygwinInstallerObject([parameter(Mandatory=$true)][Object]$SetupI
     switch ($setuparch) {
         $ARCH_X64 {
             $setupobj.($FIELD_INSTALL) = CreateFileObject $true $SETUP_X64_EXE;
-            if ($setuptimestamp -gt $TIME_MACHINE_SETUP_TIMESTAMP_2926) {
+            if ($setupversion -gt $TIME_MACHINE_SETUP_X86_X64_LAST) {
 
-                # Uses the Cygwin installer of each version, downloaded from cygwin.com
+                # Uses the Cygwin installer downloaded from cygwin.com if greater than 2.926
 
-                $setupversion = $SetupIni.($FIELD_VERSION);
-                $dlfile = $SETUP_PREFIX + $setupversion + "." + $setuparch + '.exe';
-                $setupobj.($FIELD_VERSION) = $setupversion;
+                $verstr = [String]::Format('{0:f3}', $setupversion);
+                $dlfile = $SETUP_PREFIX + $verstr + "." + $setuparch + '.exe';
                 $setupobj.($FIELD_URL) = $CYGWIN_WEBSITE + $SETUP_DIRECTORY + $dlfile;
                 return $setupobj;
             }
@@ -876,31 +930,23 @@ function CreateCygwinInstallerObject([parameter(Mandatory=$true)][Object]$SetupI
         }
         $ARCH_X86 {
             $setupobj.($FIELD_INSTALL) = CreateFileObject $true $SETUP_X86_EXE;
-            if ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_LEGACY) {
+            if ($setupversion -le $TIME_MACHINE_SETUP_LEGACY_VERSION) {
+
+                # Uses the legacy installer downloaded from Cygwin Time Machine if less than 2.674
+
                 $setupobj.($FIELD_NAME) = $SETUP_LEGACY_INSTALLER_NAME;
-                $setupobj.($FIELD_VERSION) = '2.674';
                 $setupobj.($FIELD_URL) = $dlmirror + $SETUP_LEGACY_DIRECTORY + $SETUP_LEGACY_EXE;
                 return $setupobj;
-            } elseif ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2774) {
+            } elseif ($setupversion -le $TIME_MACHINE_SETUP_LAST) {
                 $dlfileprefix = $SETUP_PREFIX;
-                $setupversion = '2.774';
             }
             break;
         }
     }
-    if ($setupversion -eq $null) {
-        if ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2874) {
-            $setupversion = '2.874';
-        } elseif ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2909) {
-            $setupversion = '2.909';
-        } elseif ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2924) {
-            $setupversion = '2.924';
-        } elseif ($setuptimestamp -le $TIME_MACHINE_SETUP_TIMESTAMP_2926) {
-            $setupversion = '2.926';
-        }
-    }
-    $dlfile = $dlfileprefix + $setupversion + '.exe';
-    $setupobj.($FIELD_VERSION) = $setupversion;
+
+    # Uses the Cygwin installer of snapshots downloaded from Cygwin Time Machine
+
+    $dlfile = $dlfileprefix + [String]::Format('{0:f3}', $setupversion) + '.exe';
     $setupobj.($FIELD_URL) = $dlmirror + $SETUP_SNAPSHOTS_DIRECTORY + $dlfile;
     return $setupobj;
 }
@@ -930,7 +976,7 @@ $SetupIni = New-Object PSObject -Prop @{
     $FIELD_NAME = 'setup.ini';
     $FIELD_RELEASE = "";
     $FIELD_ARCH = $Arch;
-    $FIELD_TIMESTAMP = "";
+    $FIELD_TIMESTAMP = 0L;
     $FIELD_MINIMUM_VERSION = "";
     $FIELD_VERSION = "";
 };
@@ -1023,11 +1069,11 @@ if ($Quiet.IsPresent) {
 
 $DownloadParam = $null;
 $DownloadRoot = $Root -replace '\\', '/' -replace '[^/]$', '$&/';
-$Downloaded = $false;
 
-if ($Download.IsPresent -or $DownloadForce.IsPresent) {
+if ($Download.IsPresent) {
     $DownloadParam = New-Object PSObject -Prop @{
         'Root' = $DownloadRoot;
+        'Temp' = $env:TEMP -replace '\\', '/' -replace '[^/]$', '$&/';
         'FilePathRegex' = [Regex]($FIELD_PATH_EXPR);
         'Buffer' = $null;
         'UrlBuilder' = [System.Text.StringBuilder]::new(256);
@@ -1035,7 +1081,6 @@ if ($Download.IsPresent -or $DownloadForce.IsPresent) {
         'SHA512CryptoServiceProvider' = $null;
         'Progress' = $Progress;
     };
-    $Downloaded = $true;
 }
 
 # The object of selection parameters
@@ -1059,19 +1104,23 @@ if ($Supplement.Contains($FIELD_LONG_DESCRIPTION)) {
 # The list of target packages extracted from setup.ini
 
 $TargetedPackageList = [System.Collections.ArrayList]::new(256);
-$TargetRegexList = [System.Collections.ArrayList]::new(16);
+$TargetedLocalPackageList = @();
+$TargetRegexList = @();
 $TargetSpecified = $false;
 
-if (($Category.Count -gt 0) -or ($PackageSet.Count -gt 0) -or ($Package.Count -gt 0) `
-    -or ($Regex.Count -gt 0) -or ($Source.Count -gt 0)) {
+if (($Category.Count + $PackageSet.Count + $Package.Count + $Source.Count) -gt 0) {
     $TargetSpecified = $true;
 }
-$Regex | `
-ForEach-Object {
-    [void]$TargetRegexList.Add([Regex]($_));
-    if (-not $?) {
-        exit 1;
+if ($Regex.Count -gt 0) {
+    $TargetRegexList = [System.Collections.ArrayList]::new($Regex.Count);
+    $Regex | `
+    ForEach-Object {
+        [void]$TargetRegexList.Add([Regex]($_));
+        if (-not $?) {
+            exit 1;
+        }
     }
+    $TargetSpecified = $true;
 }
 
 # The map of all packages read from setup.ini
@@ -1081,7 +1130,6 @@ $PackageProvidedSetMap = $null;
 if ($Provides.IsPresent) {
     $PackageProvidedSetMap = @{};
 }
-$PackageUpdated = -not $DownloadForce.IsPresent;
 
 $ConsoleCursorVisible = [Console]::CursorVisible;
 $SystemDir = [System.IO.Directory]::GetCurrentDirectory();
@@ -1090,7 +1138,67 @@ $SystemDir = [System.IO.Directory]::GetCurrentDirectory();
 
 $reader = $null;
 try {
-    if ($Downloaded) {
+
+    # Reads the information of packages which has already been installed in the local
+
+    $localroot = $Local -replace '\\', '/' -replace '[^/]$', '$&/';
+    $localinstmap = $null;
+    $localsrcmap = $null;
+
+    if ($localroot -ne "") {
+        $packinstdb = Get-Item ($localroot + $CYGWIN_INSTALLED_DATABASE) 2> $null;
+        if ($?) {
+            if ($TargetLocalPackage.IsPresent) {
+                $TargetedLocalPackageList = [System.Collections.ArrayList]::new(256);
+            }
+            $localinstmap = [Hashtable]::new(256);
+            $reader = $null;
+            try {
+
+                # Reads the package's name and version from Cygwin installed.db
+
+                $reader = $packinstdb.OpenText();
+                [void]$reader.ReadLine();  # Ignores "INSTALLED.DB x"
+
+                if ($reader.Peek() -ge 0) {
+                    do {
+                        $field = $reader.ReadLine().Split(' ');
+                        $packname = $field[0];
+                        $verstr = $field[1].Substring($packname.Length + 1) `
+                                   -replace $CYGWIN_INSTALLED_PACKAGE_SUFFIX_EXPR, "";
+
+                        if ($TargetLocalPackage.IsPresent) {
+                            [void]$TargetedLocalPackageList.Add($packname);
+                            $TargetSpecified = $true;
+                        }
+                        $localinstmap.Add($packname, (GetCygwinVersion $verstr));
+                    } while ($reader.Peek() -ge 0);
+                }
+            } finally {
+                if ($reader -ne $null) {
+                    $reader.Close();
+                }
+            }
+        }
+
+        # Gets the version of source packages from the directory name under '/usr/src'
+
+        $srcdirs = Get-ChildItem -Directory ($localroot + $CYGWIN_INSTALLED_SOURCE_PATH) 2> $null;
+        if ($srcdirs -ne $null) {
+            $localsrcmap = [Hashtable]::new(64);
+            $srcdirregex = [Regex]($CYGWIN_INSTALLED_SOURCE_DIRECTORY_EXPR);
+            $srcdirs | ForEach-Object {
+                $match = $srcdirregex.Match($_);
+                if ($match.Success) {
+                    $packname = $match.Groups[1].Value;
+                    $verstr = $match.Groups[2].Value;
+                    $localsrcmap.Add($packname, (GetCygwinVersion $verstr));
+                }
+            }
+        }
+    }
+
+    if ($DownloadParam -ne $null) {
         if ($Mirror -eq "") {
 
             # Sets the mirror site for the specified country or current region
@@ -1111,7 +1219,7 @@ try {
         $DownloadParam.Buffer = [byte[]]::new(10240);
         [void]$DownloadParam.UrlBuilder.Append($Mirror);
 
-        DownloadCygwinFile $PackageUpdated $instobj $DownloadParam;
+        DownloadCygwinFile $instobj $DownloadParam;
 
         $SetupIni `
         | Add-Member -PassThru NoteProperty ($FIELD_INSTALL) (SelectFileInformation $instobj) `
@@ -1158,7 +1266,7 @@ try {
                     }
                     'arch' {  # arch: x86(_64)?
                         if (($value -ne "") -and ($value -ne $SetupIni.($FIELD_ARCH))) {
-                            Write-Error "Setup.ini is incorrect" -Category InvalidArgument;
+                            Write-Error "Setup.ini differs from -Arch" -Category InvalidArgument;
                             exit 1;
                         }
                         break;
@@ -1190,7 +1298,7 @@ try {
         $packobj = $null;
         $longdesc = $null;
         $textquoted = $false;
-        $current = $true;
+        $textignored = $false;
 
         do {
             $text = $text.Trim();
@@ -1218,13 +1326,14 @@ try {
                     $FIELD_CATEGORY = "";
                     $FIELD_VERSION = "";
                     $FIELD_INSTALL = $null;
-                    $FIELD_INSTALL_TARGETED = $Package.Contains($packname);
+                    $FIELD_INSTALL_TARGETED = $Package.Contains($packname) `
+                        -or $TargetedLocalPackageList.Contains($packname);
                     $FIELD_SOURCE_TARGETED = $Source.Contains($packname);
                     $FIELD_REQUIRES = $null;
                     $FIELD_DEPENDS = $null;
                 };
                 $longdesc = $null;
-                $current = $true;
+                $textignored = $false;
 
                 # Appends the object of all packages read from setup.ini
 
@@ -1242,11 +1351,56 @@ try {
                         }
                     }
                 }
-            } elseif ($text.StartsWith('[') -and $text.EndsWith(']')) {
-                if (-not $text.StartsWith('[curr]')) {  # "[prev]" or "[test]"
-                    $current = $false;
+            } elseif ($text.StartsWith('[') -and $text.EndsWith(']')) {  # Version description
+
+                # Ignores other versions described after the current which is labeled or not
+
+                $text = $text.Trim('[]');
+                if ($packobj.($FIELD_INSTALL) -ne $null) {
+                    if ($packobj.($FIELD_VERSION_LABEL) -eq $null) { # After the current version
+                        $textignored = $true;
+                    } else {  # The version description which follows the previous or test
+                        if (($PackageProvidedSetMap -ne $null) `
+                            -and ($packobj.($FIELD_PROVIDES) -ne $null)) {
+
+                            # Removes the name from the set of packages which have the same value
+                            # in provides field for the previous description
+
+                            $packobj.($FIELD_PROVIDES).Replace(' ', "").Split(',') `
+                            | ForEach-Object {
+                                $provname = $_ -replace $DEPENDED_PACKAGE_SUFFIX_EXPR, "";
+                                $provset = $PackageProvidedSetMap.Item($provname);
+                                if ($provset.Contains($provname)) {
+                                    $provset.remove($provname);
+                                }
+                            }
+                        }
+
+                        # Creates the object for the next version description and replaces
+                        # the previous with it in the package map
+
+                        $nextobj = New-Object PSObject -Prop @{
+                            $FIELD_NAME = $packname;
+                            $FIELD_DESCRIPTION = $packobj.($FIELD_DESCRIPTION);
+                            $FIELD_CATEGORY = $packobj.($FIELD_CATEGORY);
+                            $FIELD_VERSION = "";
+                            $FIELD_INSTALL = $null;
+                            $FIELD_INSTALL_TARGETED = $packobj.($FIELD_INSTALL_TARGETED);
+                            $FIELD_SOURCE_TARGETED = $packobj.($FIELD_SOURCE_TARGETED);
+                            $FIELD_REQUIRES = $null;
+                            $FIELD_DEPENDS = $null;
+                        };
+                        $packobj = $nextobj;
+
+                        if ($text -ne $VERSION_LABEL_CURRENT) {  # "[prev]" or "[test]"
+                            $packobj | Add-Member NoteProperty ($FIELD_VERSION_LABEL) $text;
+                        }
+                        $PackageMap[$packname] = $packobj;
+                    }
+                } elseif ($text -ne $VERSION_LABEL_CURRENT) {  # "[prev]" or "[test]"
+                    $packobj | Add-Member NoteProperty ($FIELD_VERSION_LABEL) $text;
                 }
-            } elseif ($current) {
+            } elseif (-not $textignored) {
 
                 # Reads the package information name and value separated by a colon
 
@@ -1303,9 +1457,9 @@ try {
                         }
                         'install' {
                             # install: ((x86)?/release/(_obsolete/)?(xxx)(/yyy)+) (999) (fa5b...)
-                            $match = $packinstregex.Match($value);
-                            if ($match.Success) {
-                                if ((-not $packobj.($FIELD_INSTALL_TARGETED)) `
+                            if (-not $packobj.($FIELD_INSTALL_TARGETED)) {
+                                $match = $packinstregex.Match($value);
+                                if ($match.Success `
                                     -and $PackageSet.Contains($match.Groups[4].Value)) {
                                     $packobj.($FIELD_INSTALL_TARGETED) = $true;
                                     [void]$TargetedPackageList.Add($packname);
@@ -1348,15 +1502,18 @@ try {
                             if ($PackageProvidedSetMap -ne $null) {
                                 $value.Replace(' ', "").Split(',') | ForEach-Object {
 
-                                    # Creates the set of packages whose which have the same value
+                                    # Creates the set of packages which have the same value in
+                                    # provides field, and adds it to the map
 
                                     $provname = $_ -replace $DEPENDED_PACKAGE_SUFFIX_EXPR, "";
                                     $provset = $PackageProvidedSetMap.Item($provname);
                                     if ($provset -eq $null) {
                                         $provset = [System.Collections.ArrayList]::new(16);
                                         $PackageProvidedSetMap.Add($provname, $provset);
+                                    } elseif ($provset.Contains($provname)) {
+                                        break;
                                     }
-                                    [void]$provset.Add($packobj);
+                                    [void]$provset.Add($provname);
                                 }
                             }
                             $packobj | Add-Member NoteProperty ($FIELD_PROVIDES) $value;
@@ -1386,80 +1543,29 @@ try {
 
     # Downloads the installer after setup informations are set for the object of setup.ini
 
-    if ($Downloaded) {
-        Write-Output $SetupIni | Select-Object $SETUP_INI_FIXED_FIELDS;
-
+    if ($DownloadParam -ne $null) {
         if ($SetupIniState -eq $STATE_OLDER) {
 
             # Never download files from the mirror site if old setup.ini exists
 
+            Write-Output $SetupIni | Select-Object $SETUP_INI_FIXED_FIELDS;
             exit 0;
         }
         $SetupExe = CreateCygwinInstallerObject $SetupIni;
         $instobj = $SetupExe.($FIELD_INSTALL);
 
-        DownloadCygwinFile $PackageUpdated $instobj $DownloadParam $SetupExe.($FIELD_URL);
+        DownloadCygwinFile $instobj $DownloadParam $SetupExe.($FIELD_URL);
 
         $SetupExe.($FIELD_INSTALL) = SelectFileInformation $instobj;
         Write-Output $SetupExe | Select-Object $SETUP_EXE_FIXED_FIELDS;
+        Write-Output $SetupIni | Select-Object $SETUP_INI_FIXED_FIELDS;
 
         if ($TargetedPackageList.Count -le 0) {
             exit 0;
         }
     }
 
-    # Reads the version of packages which has been installed in the local
-
-    $localroot = $Local -replace '\\', '/' -replace '[^/]$', '$&/';
-    $localinstmap = $null;
-    $localsrcmap = $null;
-
-    if ($localroot -ne "") {
-        $packinstdb = Get-Item ($localroot + $CYGWIN_INSTALLED_DATABASE) 2> $null;
-        if ($?) {
-            $localinstmap = [Hashtable]::new(256);
-            $reader = $null;
-            try {
-
-                # Reads the package's name and file from Cygwin installed.db
-
-                $reader = $packinstdb.OpenText();
-                [void]$reader.ReadLine();  # Ignores "INSTALLED.DB x"
-
-                if ($reader.Peek() -ge 0) {
-                    do {
-                        $field = $reader.ReadLine().Split(' ');
-                        $packname = $field[0];
-                        $verstr = $field[1].Substring($packname.Length + 1) `
-                                   -replace $CYGWIN_INSTALLED_PACKAGE_SUFFIX_EXPR, "";
-                        $localinstmap.Add($packname, (GetCygwinVersion $verstr));
-                    } while ($reader.Peek() -ge 0);
-                }
-            } finally {
-                if ($reader -ne $null) {
-                    $reader.Close();
-                }
-            }
-        }
-
-        # Gets the version of source packages from the directory name under '/usr/src'
-
-        $srcdirs = Get-ChildItem -Directory ($localroot + $CYGWIN_INSTALLED_SOURCE_PATH) 2> $null;
-        if ($srcdirs -ne $null) {
-            $localsrcmap = [Hashtable]::new(64);
-            $srcdirregex = [Regex]($CYGWIN_INSTALLED_SOURCE_DIRECTORY_EXPR);
-            $srcdirs | ForEach-Object {
-                $match = $srcdirregex.Match($_);
-                if ($match.Success) {
-                    $packname = $match.Groups[1].Value;
-                    $verstr = $match.Groups[2].Value;
-                    $localsrcmap.Add($packname, (GetCygwinVersion $verstr));
-                }
-            }
-        }
-    }
-
-    # Appends the name of packages required or depended by other packages to the targeted list
+    # Appends the name of packages needed by other packages to the targeted list
 
     if ($Requires.IsPresent -or $Depends.IsPresent) {
         $count = $TargetedPackageList.Count;
@@ -1486,7 +1592,7 @@ try {
                     $depnames.Split(',') | ForEach-Object {
                         $depname = $_ -replace $DEPENDED_PACKAGE_SUFFIX_EXPR, "";
                         $depobj = $PackageMap.Item($depname);
-                        if ($depobj -ne $null) {  # The object of a package depended by others
+                        if ($depobj -ne $null) {  # The object of a package needed by others
                             if (-not $TargetedPackageList.Contains($depname)) {
                                 $depobj.($FIELD_INSTALL_TARGETED) = $true;
                                 [void]$TargetedPackageList.Add($depname);
@@ -1519,7 +1625,8 @@ try {
     $TargetedPackageList.Sort();
     $TargetedPackageList `
     | ForEach-Object -Begin {
-        if ($Downloaded) {
+        $packdownloaded = $DownloadParam -ne $null;
+        if ($packdownloaded) {
             $DownloadParam.UrlBuilder.Length = 0;
             [void]$DownloadParam.UrlBuilder.Append($Mirror);
         }
@@ -1538,7 +1645,7 @@ try {
                 $filepath = $match.Groups[1].Value;
                 $size = [long]::Parse($match.Groups[6].Value);
                 $hashvalue = $match.Groups[7].Value;
-                $instobj = CreateFileObject $Downloaded $filepath $size $hashvalue $STATE_NEW;
+                $instobj = CreateFileObject $packdownloaded $filepath $size $hashvalue $STATE_NEW;
                 $packobj.($FIELD_INSTALL) = $instobj;
             }
         }
@@ -1548,7 +1655,7 @@ try {
                 $filepath = $match.Groups[1].Value;
                 $size = [long]::Parse($match.Groups[6].Value);
                 $hashvalue = $match.Groups[7].Value;
-                $srcobj = CreateFileObject $Downloaded $filepath $size $hashvalue $STATE_NEW;
+                $srcobj = CreateFileObject $packdownloaded $filepath $size $hashvalue $STATE_NEW;
                 $packobj.($FIELD_SOURCE) = $srcobj;
             }
         }
@@ -1574,20 +1681,23 @@ try {
             }
         }
 
-        if ($Downloaded) {
+        if ($packdownloaded) {
 
             # Downloads the package whose state is 'New' in its object from the mirror site
 
             if ($instobj -ne $null) {
                 $DownloadParam.UrlBuilder.Length = $Mirror.Length;
-                DownloadCygwinFile $PackageUpdated $instobj $DownloadParam;
+                DownloadCygwinFile $instobj $DownloadParam;
             }
             if ($srcobj -ne $null) {
                 $DownloadParam.UrlBuilder.Length = $Mirror.Length;
-                DownloadCygwinFile $PackageUpdated $srcobj $DownloadParam;
+                DownloadCygwinFile $srcobj $DownloadParam;
             }
         }
 
+        if ($packobj.($FIELD_VERSION_LABEL) -eq $null) {
+            $packobj | Add-Member NoteProperty ($FIELD_VERSION_LABEL) $VERSION_LABEL_CURRENT;
+        }
         Write-Output (SelectPackageInformation $packobj $SelectParam);
     }
 } catch [System.Net.WebException] {

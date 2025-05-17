@@ -12,9 +12,9 @@ which works with Powershell 2.0 and later.
 ## Usage
 
 The package information of which target names are specified with `-Package`,
-`-Category` and/or `-Software` is extracted, led by `x86` or `x86_64` for
+`-PackageSet`, and/or `-Category` is extracted, led by `x86` or `x86_64` for
 32-bit or 64-bit architecture. In addition to that, the information of packages
-required by others is extracted with `-Requires`.
+needed by others is extracted with `-Depends` or `-Requires`.
 
 To extract the information of 32-bit cygwin and git package:
 
@@ -24,11 +24,12 @@ With `-Download`, the package's file in the directory described on that
 information is downloaded to the local from the mirror site of URL specified
 with `-Mirror` or the country of the cuurent region if present.
 
-Run the following two lines if you wish to use 64-bit packages of `Base`
-category, download that files to D:\Cygwin, and install to C:\Cygwin:
+Run the following command if you wish to use 64-bit packages of `Base`
+category, download that files:
 
-    .\Extract-Cygwin.ps1 x86_64 -Root D:\Cygwin -Category Base -Requires -Download
-    D:\Cygwin\setup-x86_64.exe -q -L -R C:\Cygwin -l D:\Cygwin -C All
+<p>
+  <img alt="Download" src="https://github.com/kawagita/extract-cygwin/raw/master/download.gif"/>
+</p>
 
 To display the detailed information about this script:
 
