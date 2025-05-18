@@ -324,7 +324,7 @@ $FIELD_HASH = 'Hash';                         # Added to Install and Source fiel
 $FIELD_DATE = 'Date';                         # Added to Install and Source field for the download
 $FIELD_STATE = 'State';                       # Added to Install and Source field
 $FIELD_REQUIRES = 'Requires';                 # Replaceed with Depends field
-$FIELD_DEPENDS = 'Depends';                   # (Optional)
+$FIELD_DEPENDS = 'Depends';
 $FIELD_CONFLICTS = 'Conflicts';               # Specified by -Supplement (Optional)
 $FIELD_OBSOLETES = 'Obsoletes';               # Specified by -Supplement (Optional)
 $FIELD_PROVIDES = 'Provides';                 # (Optional)
@@ -636,22 +636,34 @@ function CreateFileObject(
 
 # The array of fixed fields written to the output stream for a package
 
-$FIXED_FIELDS = @($FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION);
-$FIXED_LONG_FIELDS = `
-    @($FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_LONG_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION);
+$FIXED_FIELDS = @(
+    $FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION
+);
+$FIXED_LONG_FIELDS = @(
+    $FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_LONG_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION
+);
 
-$FIXED_FILE_FIELDS = @($FIELD_PATH, $FIELD_SIZE, $FIELD_STATE);
-$FIXED_FILE_CHECKED_FIELDS = @($FIELD_PATH, $FIELD_SIZE, $FIELD_HASH, $FIELD_STATE);
-$FIXED_DOWNLOAD_FIELDS = @($FIELD_PATH, $FIELD_SIZE, $FIELD_DATE, $FIELD_STATE);
-$FIXED_DOWNLOAD_CHECKED_FIELDS = `
-    @($FIELD_PATH, $FIELD_SIZE, $FIELD_HASH, $FIELD_DATE, $FIELD_STATE);
+$FIXED_INSTALL_FIELDS = @(
+    $FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION,
+    $FIELD_INSTALL, $FIELD_DEPENDS
+);
+$FIXED_INSTALL_LONG_FIELDS = @(
+    $FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_LONG_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION,
+    $FIELD_INSTALL, $FIELD_DEPENDS
+);
 
-$FIXED_INSTALL_FIELDS = `
-    @($FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION,
-    $FIELD_INSTALL, $FIELD_DEPENDS);
-$FIXED_INSTALL_LONG_FIELDS = `
-    @($FIELD_NAME, $FIELD_DESCRIPTION, $FIELD_LONG_DESCRIPTION, $FIELD_CATEGORY, $FIELD_VERSION,
-    $FIELD_INSTALL, $FIELD_DEPENDS);
+$FIXED_FILE_FIELDS = @(
+    $FIELD_PATH, $FIELD_SIZE, $FIELD_STATE
+);
+$FIXED_FILE_CHECKED_FIELDS = @(
+    $FIELD_PATH, $FIELD_SIZE, $FIELD_HASH, $FIELD_STATE
+);
+$FIXED_DOWNLOAD_FIELDS = @(
+    $FIELD_PATH, $FIELD_SIZE, $FIELD_DATE, $FIELD_STATE
+);
+$FIXED_DOWNLOAD_CHECKED_FIELDS = @(
+    $FIELD_PATH, $FIELD_SIZE, $FIELD_HASH, $FIELD_DATE, $FIELD_STATE
+);
 
 # Returns the information selected for the specified file object of a package.
 #
@@ -703,13 +715,15 @@ function SelectPackageInformation(
 
     if ($PackageObject.($FIELD_VERSION_LABEL) -eq $VERSION_LABEL_TEST) {
 
-        # Appends '(Test)' to the version if the version description is test
+        # Appends '(Test)' to the version if the package is test version
 
         $PackageObject.($FIELD_VERSION) += ' (Test)';
     }
 
     if ($SelectParam.ReplaceVersionsOutput `
         -and ($PackageObject.($FIELD_REPLACE_VERSIONS) -ne $null)) {
+        $PackageObject.($FIELD_REPLACE_VERSIONS) = `
+            $PackageObject.($FIELD_REPLACE_VERSIONS).Split(' ');
         [void]$fieldlist.Add($FIELD_REPLACE_VERSIONS);
         $fieldfixed = $false;
     }
@@ -725,16 +739,16 @@ function SelectPackageInformation(
 
     # Replaces the string with the array of values in the field added to the object
 
-    if ($PackageObject.($FIELD_DEPENDS) -ne $null) {
+    if ($PackageObject.($FIELD_DEPENDS) -ne "") {
         $PackageObject.($FIELD_DEPENDS) = `
             $PackageObject.($FIELD_DEPENDS).Replace(' ', "").Split(',');
-        [void]$fieldlist.Add($FIELD_DEPENDS);
-        $fieldfixed = $false;
-    } elseif ($PackageObject.($FIELD_REQUIRES) -ne $null) {
+    } elseif ($PackageObject.($FIELD_REQUIRES) -ne "") {
         $PackageObject.($FIELD_DEPENDS) = $PackageObject.($FIELD_REQUIRES).Split(' ');
-        [void]$fieldlist.Add($FIELD_DEPENDS);
-        $fieldfixed = $false;
+    } else {
+        $PackageObject.($FIELD_DEPENDS) = @();
     }
+    [void]$fieldlist.Add($FIELD_DEPENDS);
+
     if ($SelectParam.ObsoletesOutput -and ($PackageObject.($FIELD_OBSOLETES) -ne $null)) {
         $PackageObject.($FIELD_OBSOLETES) = `
             $PackageObject.($FIELD_OBSOLETES).Replace(' ', "").Split(',');
@@ -892,10 +906,13 @@ $SETUP_SNAPSHOTS_DIRECTORY = 'snapshots/';
 $SETUP_INSTALLER_NAME = 'Cygwin Installer';
 $SETUP_LEGACY_INSTALLER_NAME = 'Cygwin Legacy Installer';
 
+$SETUP_EXE_FIXED_FIELDS = @(
+    $FIELD_NAME, $FIELD_VERSION, $FIELD_INSTALL, $FIELD_URL
+);
 $SETUP_INI_FIXED_FIELDS = @(
     $FIELD_NAME, $FIELD_RELEASE, $FIELD_ARCH, $FIELD_TIMESTAMP, $FIELD_MINIMUM_VERSION,
-    $FIELD_VERSION, $FIELD_INSTALL, $FIELD_MIRROR);
-$SETUP_EXE_FIXED_FIELDS = @($FIELD_NAME, $FIELD_VERSION, $FIELD_INSTALL, $FIELD_URL);
+    $FIELD_VERSION, $FIELD_INSTALL, $FIELD_MIRROR
+);
 
 # Returns the object to set the information of Cygwin installer.
 #
@@ -907,7 +924,7 @@ function CreateCygwinInstallerObject([parameter(Mandatory=$true)][Object]$SetupO
         GetCygwinInstallerVersion $SetupObject.($FIELD_TIMESTAMP) $SetupObject.($FIELD_VERSION);
     $setupobj = New-Object PSObject -Prop @{
         $FIELD_NAME = $SETUP_INSTALLER_NAME;
-        $FIELD_VERSION = $setupversion;
+        $FIELD_VERSION = [String]::Format('{0:f3}', $setupversion);
         $FIELD_INSTALL = $null;
         $FIELD_URL = $null;
     };
@@ -920,8 +937,7 @@ function CreateCygwinInstallerObject([parameter(Mandatory=$true)][Object]$SetupO
 
                 # Uses the Cygwin installer downloaded from cygwin.com if greater than 2.926
 
-                $verstr = [String]::Format('{0:f3}', $setupversion);
-                $dlfile = $SETUP_PREFIX + $verstr + "." + $setuparch + '.exe';
+                $dlfile = $SETUP_PREFIX + $setupobj.($FIELD_VERSION) + "." + $setuparch + '.exe';
                 $setupobj.($FIELD_URL) = $CYGWIN_WEBSITE + $SETUP_DIRECTORY + $dlfile;
                 return $setupobj;
             }
@@ -946,7 +962,7 @@ function CreateCygwinInstallerObject([parameter(Mandatory=$true)][Object]$SetupO
 
     # Uses the Cygwin installer of snapshots downloaded from Cygwin Time Machine
 
-    $dlfile = $dlfileprefix + [String]::Format('{0:f3}', $setupversion) + '.exe';
+    $dlfile = $dlfileprefix + $setupobj.($FIELD_VERSION) + '.exe';
     $setupobj.($FIELD_URL) = $dlmirror + $SETUP_SNAPSHOTS_DIRECTORY + $dlfile;
     return $setupobj;
 }
@@ -1329,8 +1345,8 @@ try {
                     $FIELD_INSTALL_TARGETED = $Package.Contains($packname) `
                         -or $TargetedLocalPackageList.Contains($packname);
                     $FIELD_SOURCE_TARGETED = $Source.Contains($packname);
-                    $FIELD_REQUIRES = $null;
-                    $FIELD_DEPENDS = $null;
+                    $FIELD_DEPENDS = "";
+                    $FIELD_REQUIRES = "";
                 };
                 $longdesc = $null;
                 $textignored = $false;
@@ -1387,8 +1403,8 @@ try {
                             $FIELD_INSTALL = $null;
                             $FIELD_INSTALL_TARGETED = $packobj.($FIELD_INSTALL_TARGETED);
                             $FIELD_SOURCE_TARGETED = $packobj.($FIELD_SOURCE_TARGETED);
-                            $FIELD_REQUIRES = $null;
-                            $FIELD_DEPENDS = $null;
+                            $FIELD_DEPENDS = "";
+                            $FIELD_REQUIRES = "";
                         };
                         $packobj = $nextobj;
 
@@ -1580,9 +1596,9 @@ try {
             do {
                 $packobj = $PackageMap.Item($TargetedPackageList.Item($index));
                 $depnames = "";
-                if ($packobj.($FIELD_DEPENDS) -ne $null) {
+                if ($packobj.($FIELD_DEPENDS) -ne "") {
                     $depnames = $packobj.($FIELD_DEPENDS).Replace(' ', "");
-                } elseif ($packobj.($FIELD_REQUIRES) -ne $null) {
+                } elseif ($packobj.($FIELD_REQUIRES) -ne "") {
                     $depnames = $packobj.($FIELD_REQUIRES).Replace(' ', ',');
                 }
                 if ($packobj.($FIELD_BUILD_DEPENDS) -ne $null) {
